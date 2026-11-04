@@ -1,0 +1,59 @@
+{
+  "balance_usd": 1000.0,
+  "cash_usd": 760.0,
+  "open_positions": [
+    {
+      "id": "GOOGL_20261104194456",
+      "ticker": "GOOGL",
+      "entry_date": "2026-11-04 19:44",
+      "entry_price": 280.03,
+      "stop_loss_price": 224.02,
+      "target_price": 322.03,
+      "amount_usd": 120.0,
+      "shares": 0.43,
+      "recommending_models": [
+        "버핏가치투자"
+      ],
+      "status": "OPEN",
+      "current_price": 291.83,
+      "unrealized_pnl_pct": 4.21,
+      "unrealized_pnl_usd": 5.07
+    },
+    {
+      "id": "CAT_20261104194503",
+      "ticker": "CAT",
+      "entry_date": "2026-11-04 19:45",
+      "entry_price": 623.94,
+      "stop_loss_price": 499.15,
+      "target_price": 717.53,
+      "amount_usd": 120.0,
+      "shares": 0.19,
+      "recommending_models": [
+        "버핏가치투자"
+      ],
+      "status": "OPEN",
+      "current_price": 586.4,
+      "unrealized_pnl_pct": -6.02,
+      "unrealized_pnl_usd": -7.13
+    }
+  ],
+  "closed_positions": [],
+  "model_learning_stats": {
+    "Model A": {
+      "wins": 0,
+      "losses": 0,
+      "cumulative_pnl": 0.0
+    },
+    "Model B": {
+      "wins": 0,
+      "losses": 0,
+      "cumulative_pnl": 0.0
+    },
+    "Model C": {
+      "wins": 0,
+      "losses": 0,
+      "cumulative_pnl": 0.0
+    }
+  },
+  "last_weekly_deposit_date": "2026-11-05"
+}

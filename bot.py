@@ -14,11 +14,21 @@ import yfinance as yf
 from aiohttp import web
 
 import config
-from data.fetcher import MarketDataFetcher
-from data.buffett_screener import BuffettMoatScreener
-from data.chart_generator import generate_stock_chart
-from portfolio.tracker import PortfolioTracker
-from portfolio.auto_seller import AutoSellerEngine
+try:
+    from data.fetcher import MarketDataFetcher
+    from data.buffett_screener import BuffettMoatScreener
+    from data.chart_generator import generate_stock_chart
+except ModuleNotFoundError:
+    from fetcher import MarketDataFetcher
+    from buffett_screener import BuffettMoatScreener
+    from chart_generator import generate_stock_chart
+
+try:
+    from portfolio.tracker import PortfolioTracker
+    from portfolio.auto_seller import AutoSellerEngine
+except ModuleNotFoundError:
+    from tracker import PortfolioTracker
+    from auto_seller import AutoSellerEngine
 
 intents = discord.Intents.default()
 intents.message_content = True
