@@ -4,9 +4,9 @@ from typing import Dict, List, Any
 import requests
 import config
 try:
-    from portfolio.tracker import PortfolioTracker
-except ModuleNotFoundError:
     from tracker import PortfolioTracker
+except ModuleNotFoundError:
+    from portfolio.tracker import PortfolioTracker
 
 class AutoSellerEngine:
     """
