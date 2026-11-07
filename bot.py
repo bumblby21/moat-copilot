@@ -30,11 +30,17 @@ except ModuleNotFoundError:
     from portfolio.tracker import PortfolioTracker
     from portfolio.auto_seller import AutoSellerEngine
 
+try:
+    from friends_manager import FriendsTournamentManager
+except ModuleNotFoundError:
+    from data.friends_manager import FriendsTournamentManager
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 tracker = PortfolioTracker()
 auto_seller = AutoSellerEngine()
+friends_manager = FriendsTournamentManager()
 
 class CustomBuyModal(Modal):
     """
@@ -348,6 +354,34 @@ async def auto_sell_check_loop():
                     )
                 )
                 await channel.send(embed=dca_embed)
+                await asyncio.sleep(1.0)
+
+        # 4. Check and execute AI Friends tournament autonomous trading
+        friend_events = friends_manager.evaluate_and_trade()
+        if friend_events and channel:
+            for ev in friend_events:
+                if ev['action'] == '매수':
+                    desc = (
+                        f"{ev['icon']} **{ev['model_name']}** 가 **{ev['ticker']} ({ev['name']})** 을(를) 자율 매수했습니다!\n"
+                        f"• 체결가: ${ev['price']:.2f} ({ev['shares']}주, 총 ${ev['amount_usd']:.0f})\n"
+                        f"• 선정 이유: {ev['reason']}"
+                    )
+                    col = 0x3498db
+                else:
+                    sign = "+" if ev['pnl_pct'] >= 0 else ""
+                    desc = (
+                        f"{ev['icon']} **{ev['model_name']}** 가 **{ev['ticker']} ({ev['name']})** 을(를) 자율 매도했습니다!\n"
+                        f"• 실현 손익: {sign}{ev['pnl_pct']:.1f}% ({sign}${ev['pnl_usd']:.2f})\n"
+                        f"• 매도 사유: {ev['reason']}"
+                    )
+                    col = 0x2ecc71 if ev['pnl_pct'] >= 0 else 0xe74c3c
+
+                f_embed = discord.Embed(
+                    title=f"🤖 [AI 투자 친구 리그 소식] {ev['model_name']} {ev['action']} 집행",
+                    color=col,
+                    description=desc
+                )
+                await channel.send(embed=f_embed)
                 await asyncio.sleep(1.0)
     except Exception as e:
         print(f"[AutoSeller/DCA Error] {e}")
@@ -869,24 +903,169 @@ async def cmd_deposit(ctx, amount: float = None):
     )
     await ctx.send(embed=embed)
 
+def build_leaderboard_embed(board: list) -> discord.Embed:
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = []
+    lines.append("```text")
+    lines.append(f"{'순위':^4} │ {'참가자':^14} │ {'총자산':^9} │ {'수익률':^8} │ {'보유종목'}")
+    lines.append("─" * 56)
+    for r in board:
+        sign = "+" if r['roi_pct'] >= 0 else ""
+        name_str = f"{r['medal']} {r['name']}"
+        lines.append(f"{r['rank']:>2}위 │ {name_str:<12} │ ${r['total_asset']:>7,.0f} │ {sign}{r['roi_pct']:>5.1f}% │ {r['holdings_summary']}")
+    lines.append("```")
+
+    desc = "\n".join(lines) + (
+        "\n💡 **리그 규칙 (동일 조건 24시간 자율 경쟁)**:\n"
+        "• **시작 자본**: 모든 참가자 동일하게 초기 $1,000로 시작\n"
+        "• **주간 용돈**: 매주 $50씩 공통 자동 충전\n"
+        "• **100% 자율 매매**: 4명의 AI 친구들이 각자의 철학대로 30분마다 매수/익절/손절 집행\n"
+        "👇 **아래 버튼을 누르면 각 AI 친구의 상세 매매 일지와 전략 복기를 확인할 수 있습니다.**"
+    )
+
+    embed = discord.Embed(
+        title=f"🏆 [AI 모의투자 챔피언십 실시간 랭킹 리그] ({now_str})",
+        color=0xf1c40f,
+        description=desc
+    )
+    return embed
+
+def build_diary_embed(diary: dict) -> discord.Embed:
+    name = diary['name']
+    icon = diary.get('icon', '🤖')
+    phil = diary['philosophy']
+    cash = diary['cash']
+    s_val = diary['stock_value']
+    tot = diary['total_asset']
+    dep = diary['total_deposited']
+    roi = diary['roi_pct']
+    sign = "+" if roi >= 0 else ""
+
+    pos_lines = []
+    if diary['positions']:
+        for p in diary['positions']:
+            g_sign = "+" if p['gain_pct'] >= 0 else ""
+            pos_lines.append(f"• **{p['ticker']} ({p['name']})**: ${p['current_price']:.2f} ({g_sign}{p['gain_pct']:.1f}%) │ {p['shares']:.2f}주 (${p['market_value']:,.1f})")
+            pos_lines.append(f"  └ *진입 이유*: {p['reason']}")
+    else:
+        pos_lines.append("• 현재 보유 종목 없음 (현금 100% 관망 중)")
+
+    hist_lines = []
+    if diary['history']:
+        for h in diary['history'][-6:]:
+            if h.get('type') == 'BUY':
+                hist_lines.append(f"• [매수] {h['ticker']} ({h['name']}) @ ${h['entry_price']:.2f} ({h.get('date', '-')})")
+            elif h.get('type') == 'SELL':
+                s_sign = "+" if h.get('pnl_pct', 0) >= 0 else ""
+                hist_lines.append(f"• [매도] {h['ticker']} ({h['name']}) {s_sign}{h.get('pnl_pct', 0):.1f}% ({s_sign}${h.get('pnl_usd', 0):.1f}) ({h.get('date', '-')})")
+            elif h.get('type') == 'DEPOSIT':
+                hist_lines.append(f"• [입금] 주간 용돈 +${h.get('amount_usd', 50):.0f} ({h.get('date', '-')})")
+    else:
+        hist_lines.append("• 아직 체결된 매매 기록이 없습니다.")
+
+    desc = (
+        f"```text\n"
+        f"투자 철학   : {phil}\n"
+        f"총 계좌 자산: ${tot:,.2f} 달러 (누적 원금: ${dep:,.2f})\n"
+        f"누적 수익률 : {sign}{roi:.2f}%\n"
+        f"보유 현금   : ${cash:,.2f} │ 주식 평가액: ${s_val:,.2f}\n"
+        f"매매 원칙   : 목표 익절 +{diary['take_profit_pct']:.1f}% │ 손절선 {diary['stop_loss_pct']:.1f}%\n"
+        f"```\n"
+        f"📌 **현재 보유 포트폴리오**:\n" + "\n".join(pos_lines) + "\n\n"
+        f"📜 **최근 매매 히스토리**:\n" + "\n".join(hist_lines)
+    )
+
+    embed = discord.Embed(
+        title=f"{icon} [{name} 매매 일지 및 전략 복기]",
+        color=0x3498db,
+        description=desc
+    )
+    return embed
+
+class FriendsView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        btn_buffett = Button(label="🏛️ 버핏 AI", style=discord.ButtonStyle.secondary, custom_id="diary_buffett")
+        btn_buffett.callback = lambda i: self.show_diary(i, "buffett")
+        self.add_item(btn_buffett)
+
+        btn_momentum = Button(label="🚀 모멘텀 AI", style=discord.ButtonStyle.secondary, custom_id="diary_momentum")
+        btn_momentum.callback = lambda i: self.show_diary(i, "momentum")
+        self.add_item(btn_momentum)
+
+        btn_reversion = Button(label="🎣 역발상 AI", style=discord.ButtonStyle.secondary, custom_id="diary_reversion")
+        btn_reversion.callback = lambda i: self.show_diary(i, "reversion")
+        self.add_item(btn_reversion)
+
+        btn_dividend = Button(label="👑 배당귀족 AI", style=discord.ButtonStyle.secondary, custom_id="diary_dividend")
+        btn_dividend.callback = lambda i: self.show_diary(i, "dividend")
+        self.add_item(btn_dividend)
+
+        btn_refresh = Button(label="🔄 랭킹 새로고침", style=discord.ButtonStyle.primary, custom_id="diary_refresh")
+        btn_refresh.callback = self.refresh_callback
+        self.add_item(btn_refresh)
+
+    async def show_diary(self, interaction: discord.Interaction, model_query: str):
+        diary = friends_manager.get_diary(model_query)
+        if not diary:
+            await interaction.response.send_message("해당 모델의 일지를 찾을 수 없습니다.", ephemeral=True)
+            return
+
+        embed = build_diary_embed(diary)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def refresh_callback(self, interaction: discord.Interaction):
+        curr_data = tracker.load()
+        board = friends_manager.get_leaderboard(curr_data)
+        embed = build_leaderboard_embed(board)
+        await interaction.response.edit_message(embed=embed, view=FriendsView())
+
+@bot.command(name="친구들", aliases=["리그", "대회", "랭킹", "friends"])
+async def cmd_friends(ctx):
+    curr_data = tracker.load()
+    board = friends_manager.get_leaderboard(curr_data)
+    embed = build_leaderboard_embed(board)
+    view = FriendsView()
+    await ctx.send(embed=embed, view=view)
+
+@bot.command(name="일지", aliases=["매매일지", "기록", "diary"])
+async def cmd_diary(ctx, *, model_name: str = None):
+    if not model_name:
+        await ctx.send("💡 보고 싶은 AI 친구 이름을 입력해주세요!\n예: `!일지 버핏`, `!일지 모멘텀`, `!일지 역발상`, `!일지 배당`")
+        return
+
+    diary = friends_manager.get_diary(model_name)
+    if not diary:
+        await ctx.send(f"⚠️ `{model_name}` 모델을 찾을 수 없습니다. (버핏, 모멘텀, 역발상, 배당 중 선택해주세요)")
+        return
+
+    embed = build_diary_embed(diary)
+    await ctx.send(embed=embed)
+
 @bot.command(name="명령어", aliases=["도움말", "help", "commands"])
 async def cmd_help(ctx):
     embed = discord.Embed(
-        title="🏛️ 워런 버핏 가치투자 봇 명령어 가이드",
+        title="🏛️ 워런 버핏 가치투자 봇 & AI 친구들 리그 가이드",
         color=0x9b59b6,
         description=(
             f"```text\n"
             f"【 분석 및 추천 】\n"
-            f"• !추천  : 버핏 30대 기업 ROE/할인율 분석 + 1년 차트 + 매수 버튼\n"
-            f"• !차트  : 버튼을 탭해 원하는 가치주 1년 차트 즉시 확인\n"
+            f"• !추천   : 버핏 30대 기업 ROE/할인율 분석 + 3-in-1 차트 + 매수 버튼\n"
+            f"• !차트   : 버튼을 탭해 원하는 가치주 3-in-1 차트 즉시 확인\n"
             f"\n"
             f"【 주문 및 계좌 관리 】\n"
-            f"• !매수  : 버튼을 탭해 원하는 가치주 매수 팝업 설정\n"
-            f"• !물타기: B안(-10%, -18%) 자동 평단가 인하 & 5대 방지책 현황\n"
-            f"• !적립  : 매주 $50 자동 충전 일정 확인 및 수동 추가 입금\n"
-            f"• !잔고  : 현재 보유 주식, 실시간 수익률, AI목표익절가 확인\n"
-            f"• !초기화: 계좌를 $1,000 초기 현금 상태로 리셋\n"
-            f"• !명령어: 이 도움말 안내창 다시 보기\n"
+            f"• !매수   : 버튼을 탭해 원하는 가치주 매수 팝업 설정\n"
+            f"• !물타기 : B안(-10%, -18%) 자동 평단가 인하 & 5대 방지책 현황\n"
+            f"• !적립   : 매주 $50 자동 충전 일정 확인 및 수동 추가 입금\n"
+            f"• !잔고   : 현재 보유 주식, 실시간 수익률, AI목표익절가 확인\n"
+            f"• !초기화 : 계좌를 $1,000 초기 현금 상태로 리셋\n"
+            f"\n"
+            f"【 🏆 AI 친구들 모의투자 챔피언십 리그 】\n"
+            f"• !친구들 : 나 vs 4대 AI 모델(버핏/모멘텀/역발상/배당) 실시간 수익률 랭킹\n"
+            f"• !일지   : 특정 AI 친구의 상세 포트폴리오 & 매매 히스토리 복기 (!일지 모멘텀 등)\n"
+            f"\n"
+            f"• !명령어 : 이 도움말 안내창 다시 보기\n"
             f"```\n"
             f"💡 **완성된 3단계 역할 분담**:\n"
             f"1. **신규 매수**: 내가 `!추천` 보고 버튼을 눌러 최종 결정\n"
