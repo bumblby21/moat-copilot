@@ -15,20 +15,20 @@ from aiohttp import web
 
 import config
 try:
-    from data.fetcher import MarketDataFetcher
-    from data.buffett_screener import BuffettMoatScreener
-    from data.chart_generator import generate_stock_chart
-except ModuleNotFoundError:
-    from fetcher import MarketDataFetcher
     from buffett_screener import BuffettMoatScreener
+    from fetcher import MarketDataFetcher
     from chart_generator import generate_stock_chart
+except ModuleNotFoundError:
+    from data.buffett_screener import BuffettMoatScreener
+    from data.fetcher import MarketDataFetcher
+    from data.chart_generator import generate_stock_chart
 
 try:
-    from portfolio.tracker import PortfolioTracker
-    from portfolio.auto_seller import AutoSellerEngine
-except ModuleNotFoundError:
     from tracker import PortfolioTracker
     from auto_seller import AutoSellerEngine
+except ModuleNotFoundError:
+    from portfolio.tracker import PortfolioTracker
+    from portfolio.auto_seller import AutoSellerEngine
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -374,12 +374,32 @@ async def start_render_web_server():
     except Exception as e:
         print(f"[Render Server Info] {e}")
 
+@tasks.loop(minutes=10)
+async def keep_alive_self_ping():
+    try:
+        url = os.getenv("RENDER_EXTERNAL_URL") or "https://moat-copilot.onrender.com"
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{url}/health", timeout=15) as resp:
+                print(f"[Keep-Alive] Self ping {url}/health -> status {resp.status}")
+    except Exception as e:
+        print(f"[Keep-Alive Info] {e}")
+
 @bot.event
 async def on_ready():
     print(f"🏛️ [Buffett AI Bot] {bot.user} 워런 버핏 퀀트 가치투자 봇 가동 완료!")
     await start_render_web_server()
     if not auto_sell_check_loop.is_running():
         auto_sell_check_loop.start()
+    if not keep_alive_self_ping.is_running():
+        keep_alive_self_ping.start()
+
+@bot.event
+async def on_command_error(ctx, error):
+    print(f"[Command Error] {error}")
+    if isinstance(error, commands.CommandNotFound):
+        return
+    await ctx.send(f"⚠️ 명령어 처리 중 문제가 발생했습니다: `{error}`")
 
 @bot.command(name="추천")
 async def cmd_recommend(ctx):
